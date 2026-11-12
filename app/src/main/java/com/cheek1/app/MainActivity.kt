@@ -385,7 +385,14 @@ class MainActivity : FragmentActivity() {
         val file = File(filesDir, "checklists.json")
         if (!file.exists()) return
         try {
-            val arr = JSONArray(file.readText())
+            val raw = file.readText()
+            val root = runCatching { JSONObject(raw) }.getOrNull()
+            val folderArray = root?.optJSONArray("folders") ?: JSONArray()
+            for (i in 0 until folderArray.length()) {
+                val f = folderArray.getJSONObject(i)
+                folders.add(CheckFolder(f.optLong("id"), f.optString("name"), f.optInt("color", 0xFFE8F0FE.toInt())))
+            }
+            val arr = root?.optJSONArray("lists") ?: JSONArray(raw)
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
                 val items = mutableListOf<CheckItem>()
@@ -394,7 +401,7 @@ class MainActivity : FragmentActivity() {
                     val it = itemArr.getJSONObject(j)
                     items.add(CheckItem(it.optString("text"), it.optBoolean("done")))
                 }
-                lists.add(CheckList(obj.optLong("id"), obj.optString("name"), items))
+                lists.add(CheckList(obj.optLong("id"), obj.optString("name"), items, obj.optLong("folderId", 0L)))
             }
         } catch (_: Exception) { lists.clear() }
         val font = prefs.getString("font_file", null)
