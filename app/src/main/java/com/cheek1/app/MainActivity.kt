@@ -18,10 +18,13 @@ import java.io.*
 import java.util.concurrent.Executor
 
 data class CheckItem(var text: String, var done: Boolean = false)
-data class CheckList(var id: Long, var name: String, val items: MutableList<CheckItem> = mutableListOf())
+data class CheckList(var id: Long, var name: String, val items: MutableList<CheckItem> = mutableListOf(), var folderId: Long = 0L)
+data class CheckFolder(var id: Long, var name: String, var color: Int = 0xFFE8F0FE.toInt())
 
 class MainActivity : FragmentActivity() {
     private val lists = mutableListOf<CheckList>()
+    private val folders = mutableListOf<CheckFolder>()
+    private var currentFolderId: Long? = null
     private var selectedId: Long = -1
     private lateinit var content: LinearLayout
     private lateinit var listSpinner: Spinner
@@ -52,50 +55,82 @@ class MainActivity : FragmentActivity() {
 
     private fun buildUi() {
         val scroll = ScrollView(this)
-        content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(18, 18, 18, 24)
-            layoutDirection = View.LAYOUT_DIRECTION_RTL
-        }
-        scroll.addView(content)
-        setContentView(scroll)
-
+        content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(18, 18, 18, 24); layoutDirection = View.LAYOUT_DIRECTION_RTL }
+        scroll.addView(content); setContentView(scroll)
         content.addView(label("CHEEK1", 26f, true))
         content.addView(label("مدیریت آفلاین چک‌لیست‌ها", 14f, false))
+        if (currentFolderId == null) renderHome() else renderFolder()
+    }
 
-        listSpinner = Spinner(this)
-        refreshSpinner()
-        content.addView(listSpinner)
-        listSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
-            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
-                if (position in lists.indices) {
-                    selectedId = lists[position].id
-                    renderItems()
-                }
+    private fun renderHome() {
+        content.addView(label("پوشه‌های من", 22f, true))
+        content.addView(button("＋ ایجاد پوشه جدید") { editDialog("نام پوشه", "") { name -> if (name.isNotBlank()) { folders.add(CheckFolder(System.currentTimeMillis(), name.trim())); saveData(); buildUi() } } })
+        folders.forEach { folder ->
+            val card = TextView(this).apply {
+                text = "📁  " + folder.name + "\n" + lists.count { it.folderId == folder.id } + " چک‌لیست"
+                textSize = fontSize; typeface = customTypeface ?: Typeface.DEFAULT_BOLD
+                setTextColor(0xFF263238.toInt()); setBackgroundColor(folder.color); setPadding(20, 22, 20, 22)
+                gravity = Gravity.CENTER_VERTICAL; layoutDirection = View.LAYOUT_DIRECTION_RTL
+                setOnClickListener { currentFolderId = folder.id; buildUi() }
+                setOnLongClickListener { showFolderMenu(folder); true }
             }
+            content.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 12 })
         }
+        val unfiled = TextView(this).apply { text = "📂  بدون پوشه\n" + lists.count { it.folderId == 0L } + " چک‌لیست"; textSize = fontSize; setPadding(20,22,20,22); setBackgroundColor(0xFFF1F3F4.toInt()); layoutDirection = View.LAYOUT_DIRECTION_RTL; setOnClickListener { currentFolderId = 0L; buildUi() } }
+        content.addView(unfiled, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 12 })
+        content.addView(button("تنظیمات و پشتیبان‌گیری") { showSettings() })
+    }
 
-        content.addView(button("ایجاد چک‌لیست") { createList() })
+    private fun renderFolder() {
+        val folder = folders.firstOrNull { it.id == currentFolderId }
+        content.addView(button("← بازگشت به پوشه‌ها") { currentFolderId = null; buildUi() })
+        content.addView(label(if (currentFolderId == 0L) "بدون پوشه" else folder?.name ?: "پوشه", 22f, true))
+        content.addView(button("＋ ایجاد چک‌لیست") { createList() })
+        content.addView(button("تنظیمات و پشتیبان‌گیری") { showSettings() })
+        val selected = lists.filter { it.folderId == (currentFolderId ?: 0L) }
+        selected.forEach { list -> content.addView(button("☷  " + list.name + "  •  " + list.items.size + " مورد") { selectedId = list.id; showChecklist() }) }
+        if (selected.isEmpty()) content.addView(label("هنوز چک‌لیستی در این پوشه نیست.", fontSize, false))
+    }
+
+    private fun showFolderMenu(folder: CheckFolder) {
+        AlertDialog.Builder(this).setTitle(folder.name).setItems(arrayOf("تغییر نام","تغییر رنگ","حذف پوشه")) { _, which ->
+            when (which) {
+                0 -> editDialog("نام پوشه", folder.name) { name -> if (name.isNotBlank()) { folder.name=name.trim(); saveData(); buildUi() } }
+                1 -> { folder.color = if (folder.color == 0xFFE8F0FE.toInt()) 0xFFE9F5EA.toInt() else if (folder.color == 0xFFE9F5EA.toInt()) 0xFFFFF1DD.toInt() else 0xFFE8F0FE.toInt(); saveData(); buildUi() }
+                2 -> AlertDialog.Builder(this).setMessage("چک‌لیست‌های این پوشه به بخش بدون پوشه منتقل شوند؟").setNegativeButton("انصراف", null).setPositiveButton("حذف") { _, _ -> lists.filter { it.folderId == folder.id }.forEach { it.folderId=0L }; folders.remove(folder); saveData(); currentFolderId=null; buildUi() }.show()
+            }
+        }.show()
+    }
+
+    private fun showChecklist() {
+        val list = currentList() ?: return
+        content.removeAllViews()
+        content.addView(button("← بازگشت به پوشه") { currentFolderId=list.folderId; buildUi() })
+        content.addView(label(list.name, 22f, true))
         content.addView(button("تغییر نام چک‌لیست") { renameList() })
         content.addView(button("حذف چک‌لیست") { deleteList() })
-        content.addView(divider())
-
-        content.addView(label("موارد چک‌لیست", 19f, true))
+        content.addView(button("انتقال به پوشه") { moveList(list) })
         content.addView(button("افزودن مورد") { addItem() })
         content.addView(button("ورود اکسل؛ هر ردیف یک مورد") { chooseFile("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", REQ_IMPORT_XLSX) })
         content.addView(button("خروجی اکسل") { chooseCreate("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "checklist.xlsx", REQ_EXPORT_XLSX) })
-        content.addView(divider())
-
-        content.addView(label("پشتیبان‌گیری و تنظیمات", 19f, true))
-        content.addView(button("خروجی فایل پشتیبان") { chooseCreate("application/json", "cheek1-backup.json", REQ_BACKUP_OUT) })
-        content.addView(button("ورود فایل پشتیبان") { chooseFile("application/json", REQ_BACKUP_IN) })
-        content.addView(button("تنظیم اندازه فونت") { changeFontSize() })
-        content.addView(button("افزودن فونت دلخواه") { chooseFile("*/*", REQ_FONT) })
-        content.addView(button(if (prefs.getBoolean("lock_enabled", false)) "غیرفعال‌کردن قفل اثر انگشت" else "فعال‌کردن قفل اثر انگشت") { toggleBiometric() })
         renderItems()
     }
 
+    private fun moveList(list: CheckList) {
+        val options = listOf("بدون پوشه") + folders.map { it.name }
+        AlertDialog.Builder(this).setTitle("انتقال چک‌لیست به").setItems(options.toTypedArray()) { _, which -> list.folderId=if (which==0) 0L else folders[which-1].id; saveData(); currentFolderId=list.folderId; buildUi() }.show()
+    }
+
+    private fun showSettings() {
+        content.removeAllViews()
+        content.addView(button("← بازگشت") { currentFolderId=null; buildUi() })
+        content.addView(label("تنظیمات و پشتیبان‌گیری",20f,true))
+        content.addView(button("خروجی فایل پشتیبان") { chooseCreate("application/json","cheek1-backup.json",REQ_BACKUP_OUT) })
+        content.addView(button("ورود فایل پشتیبان") { chooseFile("application/json",REQ_BACKUP_IN) })
+        content.addView(button("تنظیم اندازه فونت") { changeFontSize() })
+        content.addView(button("افزودن فونت دلخواه") { chooseFile("*/*",REQ_FONT) })
+        content.addView(button(if (prefs.getBoolean("lock_enabled",false)) "غیرفعال‌کردن قفل اثر انگشت" else "فعال‌کردن قفل اثر انگشت") { toggleBiometric() })
+    }
     private fun renderItems() {
         if (!::content.isInitialized) return
         // Rebuild the item area at the end, keeping the controls above it.
@@ -149,8 +184,8 @@ class MainActivity : FragmentActivity() {
     private fun createList() {
         editDialog("نام چک‌لیست جدید", "") { name ->
             if (name.isNotBlank()) {
-                val item = CheckList(System.currentTimeMillis(), name.trim())
-                lists.add(item); selectedId = item.id; saveData(); refreshSpinner(); renderItems()
+                val item = CheckList(System.currentTimeMillis(), name.trim(), folderId = currentFolderId ?: 0L)
+                lists.add(item); selectedId = item.id; saveData(); showChecklist()
             }
         }
     }
