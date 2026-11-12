@@ -402,15 +402,19 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun saveData() {
+        val root = JSONObject()
+        val folderArray = JSONArray()
+        folders.forEach { folder -> folderArray.put(JSONObject().put("id", folder.id).put("name", folder.name).put("color", folder.color)) }
+        root.put("folders", folderArray)
         val arr = JSONArray()
         lists.forEach { list ->
             val items = JSONArray()
             list.items.forEach { items.put(JSONObject().put("text", it.text).put("done", it.done)) }
-            arr.put(JSONObject().put("id", list.id).put("name", list.name).put("items", items))
+            arr.put(JSONObject().put("id", list.id).put("name", list.name).put("folderId", list.folderId).put("items", items))
         }
-        File(filesDir, "checklists.json").writeText(arr.toString())
+        root.put("lists", arr)
+        File(filesDir, "checklists.json").writeText(root.toString())
     }
-
     private fun label(text: String, size: Float, bold: Boolean) = TextView(this).apply {
         this.text = text; textSize = size; gravity = Gravity.CENTER
         setPadding(8, 12, 8, 12); typeface = if (bold) Typeface.DEFAULT_BOLD else customTypeface ?: Typeface.DEFAULT
