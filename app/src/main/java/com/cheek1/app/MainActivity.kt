@@ -44,11 +44,8 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         fontSize = prefs.getFloat("font_size", 16f)
         loadData()
-        if (lists.isEmpty()) {
-            lists.add(CheckList(System.currentTimeMillis(), "چک‌لیست من"))
-            selectedId = lists.first().id
-            saveData()
-        } else selectedId = lists.first().id
+        selectedId = lists.firstOrNull()?.id ?: -1L
+        if (lists.isEmpty() && folders.isEmpty()) saveData()
         buildUi()
         if (prefs.getBoolean("lock_enabled", false)) authenticate()
     }
@@ -193,7 +190,7 @@ class MainActivity : FragmentActivity() {
     private fun renameList() {
         val list = currentList() ?: return
         editDialog("نام جدید", list.name) { value ->
-            if (value.isNotBlank()) { list.name = value.trim(); saveData(); refreshSpinner() }
+            if (value.isNotBlank()) { list.name = value.trim(); saveData(); if (currentFolderId != null) buildUi() else refreshSpinner() }
         }
     }
 
@@ -203,9 +200,9 @@ class MainActivity : FragmentActivity() {
             .setNegativeButton("انصراف", null)
             .setPositiveButton("حذف") { _, _ ->
                 lists.remove(list)
-                if (lists.isEmpty()) lists.add(CheckList(System.currentTimeMillis(), "چک‌لیست من"))
-                selectedId = lists.first().id
-                saveData(); refreshSpinner(); renderItems()
+                selectedId = lists.firstOrNull()?.id ?: -1L
+                currentFolderId = list.folderId
+                saveData(); buildUi()
             }.show()
     }
 
@@ -332,12 +329,15 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun writeBackup(uri: Uri) {
-        val json = JSONObject().put("format", "CHEEK1_BACKUP").put("version", 2)
+        val json = JSONObject().put("format", "CHEEK1_BACKUP").put("version", 3)
+        val folderArray = JSONArray()
+        folders.forEach { folder -> folderArray.put(JSONObject().put("id", folder.id).put("name", folder.name).put("color", folder.color)) }
+        json.put("folders", folderArray)
         val arr = JSONArray()
         lists.forEach { list ->
             val items = JSONArray()
             list.items.forEach { items.put(JSONObject().put("text", it.text).put("done", it.done)) }
-            arr.put(JSONObject().put("id", list.id).put("name", list.name).put("items", items))
+            arr.put(JSONObject().put("id", list.id).put("name", list.name).put("folderId", list.folderId).put("items", items))
         }
         json.put("lists", arr)
         contentResolver.openOutputStream(uri).use { it?.write(json.toString(2).toByteArray(Charsets.UTF_8)) }
@@ -349,6 +349,12 @@ class MainActivity : FragmentActivity() {
         val json = JSONObject(raw)
         val arr = json.optJSONArray("lists") ?: json.optJSONArray("checklists") ?: JSONArray()
         val restored = mutableListOf<CheckList>()
+        val restoredFolders = mutableListOf<CheckFolder>()
+        val folderArray = json.optJSONArray("folders") ?: JSONArray()
+        for (i in 0 until folderArray.length()) {
+            val folder = folderArray.optJSONObject(i) ?: continue
+            restoredFolders.add(CheckFolder(folder.optLong("id"), folder.optString("name"), folder.optInt("color", 0xFFE8F0FE.toInt())))
+        }
         for (i in 0 until arr.length()) {
             val obj = arr.optJSONObject(i) ?: continue
             val name = obj.optString("name", obj.optString("title", "چک‌لیست ${i + 1}"))
@@ -362,10 +368,10 @@ class MainActivity : FragmentActivity() {
                     else -> if (entry != null && entry.toString().isNotBlank()) items.add(CheckItem(entry.toString()))
                 }
             }
-            restored.add(CheckList(id, name, items))
+            restored.add(CheckList(id, name, items, obj.optLong("folderId", 0L)))
         }
         if (restored.isEmpty()) error("چک‌لیستی در فایل پشتیبان پیدا نشد")
-        lists.clear(); lists.addAll(restored); selectedId = lists.first().id
+        folders.clear(); folders.addAll(restoredFolders); lists.clear(); lists.addAll(restored); selectedId = lists.first().id; currentFolderId = null
         saveData(); buildUi(); toast("بازیابی با موفقیت انجام شد.")
     }
 
