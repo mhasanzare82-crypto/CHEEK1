@@ -37,10 +37,10 @@ object SimpleXlsx {
         for (m in cellRegex.findAll(sheet)) {
             val attrs = m.groupValues[1]
             val body = m.groupValues[2]
-            val ref = Regex("""\br="([A-Z]+)(\d+)"""").find(attrs) ?: continue
+            val ref = Regex("\\br=\"([A-Z]+)(\\d+)\"").find(attrs) ?: continue
             if (ref.groupValues[1] != "A") continue
             val rowNum = ref.groupValues[2].toIntOrNull() ?: continue
-            val type = Regex("""\bt="([^"]+)"""").find(attrs)?.groupValues?.get(1)
+            val type = Regex("\\bt=\"([^\"]+)\"").find(attrs)?.groupValues?.get(1)
             val raw = Regex("<v\\b[^>]*>(.*?)</v>", setOf(RegexOption.DOT_MATCHES_ALL))
                 .find(body)?.groupValues?.get(1)
             val value = when (type) {
